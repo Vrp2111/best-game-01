@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRISMWARD — a light tower defense</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2305060d'/%3E%3Cpolygon points='16,5 27,25 5,25' fill='none' stroke='%23ffffff' stroke-width='2'/%3E%3Cline x1='16' y1='14' x2='16' y2='27' stroke='%23ff3b4e' stroke-width='2'/%3E%3Cline x1='13' y1='17' x2='5' y2='25' stroke='%2338b6ff' stroke-width='2'/%3E%3Cline x1='19' y1='17' x2='27' y2='25' stroke='%233dff8e' stroke-width='2'/%3E%3C/svg%3E">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #03040a; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #eef1ff; }
+  #app { width: 1280px; height: 720px; margin: 0 auto; display: flex; flex-direction: column; background: #05060d; }
+  /* ---------- top bar ---------- */
+  #topbar { height: 56px; flex: 0 0 56px; display: flex; align-items: center; gap: 14px; padding: 0 14px;
+    background: linear-gradient(180deg, #141a36, #0c1024); border-bottom: 1px solid #2a3160; }
+  .logo { font-size: 22px; font-weight: 800; letter-spacing: 3px; color: #fff;
+    text-shadow: 0 0 14px rgba(150, 180, 255, 0.9), 0 0 34px rgba(120, 140, 255, 0.5); white-space: nowrap; }
+  .logo span { display: block; font-size: 9px; letter-spacing: 4px; color: #9aa3c7; text-shadow: none; font-weight: 600; }
+  .stat { font-size: 14px; font-weight: 700; white-space: nowrap; }
+  .stat small { display: block; font-size: 9px; letter-spacing: 2px; color: #9aa3c7; font-weight: 600; }
+  .stat.core { display: flex; align-items: center; gap: 6px; }
+  .hpbar { width: 110px; height: 12px; background: #1a1f38; border: 1px solid #2a3160; border-radius: 6px; overflow: hidden; }
+  #coreFill { height: 100%; width: 100%; background: linear-gradient(90deg, #ffd166, #ffe9a8); transition: width 0.2s; }
+  #topbar button { font: inherit; font-size: 13px; font-weight: 700; color: #eef1ff; background: #1c2242;
+    border: 1px solid #3a4272; border-radius: 8px; padding: 7px 12px; cursor: pointer; white-space: nowrap; }
+  #topbar button:hover { background: #28305c; }
+  #topbar button:disabled { opacity: 0.45; cursor: default; }
+  #btnWave { background: #274b2f; border-color: #3f7d4e; }
+  #btnWave:hover { background: #2f5c39; }
+  .spacer { flex: 1; }
+  /* ---------- main row ---------- */
+  #main { flex: 1; display: flex; min-height: 0; }
+  #game { width: 960px; height: 640px; display: block; cursor: crosshair; }
+  #side { width: 320px; flex: 0 0 320px; background: #0a0d1f; border-left: 1px solid #2a3160;
+    padding: 10px 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  #side h2 { font-size: 11px; letter-spacing: 2px; color: #9aa3c7; margin: 0 0 6px; text-transform: uppercase; }
+  .tower-card { display: block; width: 100%; text-align: left; font: inherit; color: #eef1ff; background: #12162b;
+    border: 1px solid #2a3160; border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; }
+  .tower-card:hover { border-color: #5a6bc0; }
+  .tower-card.selected { border-color: #ffd166; box-shadow: 0 0 0 1px #ffd166, 0 0 14px rgba(255, 209, 102, 0.35); }
+  .tower-card.cant { opacity: 0.45; }
+  .tower-card .row1 { display: flex; justify-content: space-between; font-weight: 800; font-size: 14px; }
+  .tower-card .cost { color: #ffd166; }
+  .tower-card .key { display: inline-block; background: #2a3160; border-radius: 4px; padding: 0 5px; font-size: 11px; margin-right: 4px; }
+  .tower-card .desc { font-size: 12px; color: #c6cde8; line-height: 1.35; margin-top: 3px; }
+  #selected { background: #12162b; border: 1px solid #2a3160; border-radius: 10px; padding: 8px 10px; font-size: 13px; line-height: 1.5; }
+  #selected .row1 { display: flex; justify-content: space-between; font-weight: 800; }
+  #selected button { font: inherit; font-size: 12px; font-weight: 700; color: #eef1ff; background: #1c2242;
+    border: 1px solid #3a4272; border-radius: 7px; padding: 5px 10px; cursor: pointer; margin: 6px 6px 0 0; }
+  #selected button:hover { background: #28305c; }
+  .legend { font-size: 12.5px; line-height: 1.65; color: #c6cde8; }
+  .dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; vertical-align: -1px;
+    box-shadow: 0 0 8px currentColor; }
+  #nextWave { font-size: 13px; line-height: 1.55; color: #c6cde8; }
+  #objective { font-size: 12.5px; line-height: 1.55; color: #9aa3c7; border-top: 1px solid #232a4d; padding-top: 8px; }
+  #objective b { color: #eef1ff; }
+  /* ---------- bottom strip ---------- */
+  #hints { flex: 0 0 24px; display: flex; align-items: center; padding: 0 14px; font-size: 12px; color: #9aa3c7;
+    background: #070912; border-top: 1px solid #1c2242; }
+  #hints b { color: #c6cde8; }
+  /* ---------- overlays ---------- */
+  .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(3, 4, 10, 0.72); backdrop-filter: blur(2px); z-index: 10; }
+  .overlay[hidden] { display: none; }
+  .panel { width: 620px; max-width: 92vw; background: linear-gradient(180deg, #12162b, #0a0d1f);
+    border: 1px solid #3a4272; border-radius: 16px; padding: 28px 32px; text-align: center;
+    box-shadow: 0 0 60px rgba(90, 110, 255, 0.35); }
+  .panel h1 { margin: 0; font-size: 52px; letter-spacing: 8px; color: #fff;
+    text-shadow: 0 0 22px rgba(150, 180, 255, 0.95), 0 0 70px rgba(120, 140, 255, 0.6); }
+  .panel h1.small { font-size: 38px; letter-spacing: 5px; }
+  .panel .tag { color: #9aa3c7; letter-spacing: 4px; font-size: 12px; margin-top: 2px; }
+  .panel p { font-size: 15px; line-height: 1.6; color: #c6cde8; }
+  .panel .mechanic { background: #0a0d1f; border: 1px solid #2a3160; border-radius: 10px; padding: 10px 14px;
+    font-size: 14px; line-height: 1.65; text-align: left; }
+  .panel .bigbtn { font: inherit; font-size: 18px; font-weight: 800; letter-spacing: 1px; color: #0a0d1f;
+    background: linear-gradient(180deg, #ffe9a8, #ffd166); border: none; border-radius: 10px;
+    padding: 12px 34px; cursor: pointer; margin-top: 14px; box-shadow: 0 0 24px rgba(255, 209, 102, 0.45); }
+  .panel .bigbtn:hover { filter: brightness(1.08); }
+  .panel .stats { font-size: 14px; color: #eef1ff; line-height: 1.8; }
+  .panel .best { font-size: 12px; color: #9aa3c7; margin-top: 10px; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div class="logo">PRISMWARD<span>LIGHT TOWER DEFENSE</span></div>
+    <div class="stat"><small>WAVE</small><span id="statWave">1 / 10</span></div>
+    <div class="stat"><small>LUMENS</small><span id="statLumens">◈ 140</span></div>
+    <div class="stat core"><small>LANTERN</small><div class="hpbar"><div id="coreFill"></div></div><span id="coreText">20 / 20</span></div>
+    <div class="stat"><small>SCORE</small><span id="statScore">0</span></div>
+    <div class="stat"><small>SHADOWS</small><span id="statEnemies">0</span></div>
+    <div class="spacer"></div>
+    <button id="btnWave" type="button">▶ Start Wave 1</button>
+    <button id="btnPause" type="button">⏸ Pause</button>
+    <button id="btnSpeed" type="button">1×</button>
+    <button id="btnMute" type="button">🔊 Sound</button>
+    <button id="btnRestart" type="button">↻ Restart</button>
+  </header>
+  <div id="main">
+    <canvas id="game" width="960" height="640" aria-label="PRISMWARD: defend the Lantern with light. Place emitters, mirrors and prisms, then start the wave."></canvas>
+    <aside id="side">
+      <section>
+        <h2>Build — click a tower, then a tile</h2>
+        <div id="palette"></div>
+      </section>
+      <section id="selected" hidden></section>
+      <section>
+        <h2>The light — one beam, three colours</h2>
+        <div class="legend">
+          <div><span class="dot" style="color:#ff3b4e;background:#ff3b4e"></span><b style="color:#ff8a7a">Red</b> — heavy damage, 2×</div>
+          <div><span class="dot" style="color:#38b6ff;background:#38b6ff"></span><b style="color:#8ad8ff">Blue</b> — slows shadows 50%</div>
+          <div><span class="dot" style="color:#3dff8e;background:#3dff8e"></span><b style="color:#8affc0">Green</b> — kills heal the Lantern +1</div>
+          <div style="margin-top:4px">A <b>prism</b> splits one white beam into all three. The glowing <b>ring</b> around a shadow is the colour it is <b>weak</b> to (2× damage) — match the colour to the ring.</div>
+        </div>
+      </section>
+      <section>
+        <h2>Next wave</h2>
+        <div id="nextWave">—</div>
+      </section>
+      <section id="objective"><b>Objective:</b> defend the Lantern. Survive all <b>10 waves</b>. If a shadow reaches the Lantern, it bites off health — at 0 the light dies. Route light with mirrors and prisms so the right colour meets the right shadow.</section>
+    </aside>
+  </div>
+  <footer id="hints"><span><b>1–4</b> select tower &nbsp;·&nbsp; <b>R</b> / right-click rotate &nbsp;·&nbsp; <b>Space</b> start wave &nbsp;·&nbsp; <b>P</b> pause &nbsp;·&nbsp; <b>Esc</b> deselect &nbsp;·&nbsp; click a placed tower to rotate / sell</span></footer>
+</div>
+
+<div class="overlay" id="titleOverlay">
+  <div class="panel">
+    <h1>PRISMWARD</h1>
+    <div class="tag">A LIGHT TOWER DEFENSE — MIRRORS &amp; PRISMS</div>
+    <p>Shadows crawl out of the dark to eat your Lantern. Your only weapon is <b style="color:#fff">light</b>.</p>
+    <div class="mechanic">
+      🔦 <b>Emitter</b> fires a white beam &nbsp;·&nbsp; 🪞 <b>Mirror</b> bends it 90° &nbsp;·&nbsp; 🔺 <b>Prism</b> splits it into three colours — <b style="color:#ff8a7a">red</b> hits 2× harder, <b style="color:#8ad8ff">blue</b> slows, <b style="color:#8affc0">green</b> heals the Lantern on a kill.<br>
+      Every shadow wears a glowing ring in the colour it is <b>weak</b> to. Route the right colour to the right shadow.
+    </div>
+    <p style="font-size:13px">Survive all <b style="color:#fff">10 waves</b>. A shadow that reaches the Lantern bites off health. Build with lumens earned from kills.</p>
+    <button class="bigbtn" id="btnStart" type="button">▶ &nbsp;START GAME</button>
+    <div class="best" id="titleBest"></div>
+  </div>
+</div>
+
+<div class="overlay" id="winOverlay" hidden>
+  <div class="panel">
+    <h1 class="small">THE LANTERN HOLDS</h1>
+    <div class="tag">ALL 10 WAVES SURVIVED — DAWN BREAKS</div>
+    <p class="stats" id="winStats"></p>
+    <button class="bigbtn" id="btnWinAgain" type="button">↻ &nbsp;PLAY AGAIN</button>
+    <div class="best" id="winBest"></div>
+  </div>
+</div>
+
+<div class="overlay" id="loseOverlay" hidden>
+  <div class="panel">
+    <h1 class="small">THE LIGHT FADES…</h1>
+    <div class="tag">THE SHADOWS REACHED THE LANTERN</div>
+    <p class="stats" id="loseStats"></p>
+    <button class="bigbtn" id="btnLoseAgain" type="button">↻ &nbsp;TRY AGAIN</button>
+    <div class="best" id="loseBest"></div>
+  </div>
+</div>
+
+<div class="overlay" id="pauseOverlay" hidden>
+  <div class="panel">
+    <h1 class="small">PAUSED</h1>
+    <p>The light waits for you.</p>
+    <button class="bigbtn" id="btnResume" type="button">▶ &nbsp;RESUME</button>
+  </div>
+</div>
+
+<p id="status" role="status" aria-live="polite"></p>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
