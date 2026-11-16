@@ -175,3 +175,5 @@ export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
 /** Where the best score is kept between visits (this browser only). */
 export const BEST_KEY = 'prismward.best';
+/** Where the best run's letter grade is kept beside the best score. */
+export const BEST_GRADE_KEY = 'prismward.bestGrade';

@@ -46,7 +46,8 @@ function runSteps(world, seconds) {
 
 /**
  * Set `world` to the named scene and return the screen to draw over it:
- * 'title' (attract mode), 'play' (mid or late fight), or 'win' (victory).
+ * 'title' (attract mode), 'play' (mid or late fight), 'draft' (the Prism
+ * Rites draft after a wave clear), or 'win' (victory).
  */
 export function stageShot(name, world) {
   world.reset();
@@ -64,11 +65,40 @@ export function stageShot(name, world) {
     runSteps(world, 22);
     return { screen: 'play' };
   }
+  if (name === 'draft') {
+    // Wave 3 just cleared: a full board, two rites already taken, and the
+    // draft offer drawn from the seeded stream (same three every time).
+    world.debugSetup({ lumens: 1240, wave: 4 });
+    placeLayout(world, MID_LAYOUT);
+    world.applyRite('overcharge');
+    world.applyRite('richvein');
+    world.state.score = 1240;
+    world.state.kills = 41;
+    world.state.damageDealt = 18320;
+    world.state.lumensEarned = 410;
+    world.state.lumensSpent = 260;
+    world.state.towersBuilt = 7;
+    world.state.towersSold = 1;
+    world.state.time = 152;
+    runSteps(world, 0.5);
+    return { screen: 'draft', offer: world.drawOffer() };
+  }
   if (name === 'victory') {
     world.debugSetup({ lumens: 999, wave: 10 });
     placeLayout(world, LATE_LAYOUT);
+    world.applyRite('overcharge');
+    world.applyRite('quadprism');
+    world.applyRite('richvein');
+    world.applyRite('vitality');
     world.state.score = 2840;
     world.state.kills = 96;
+    world.state.damageDealt = 48210;
+    world.state.lumensEarned = 1180;
+    world.state.lumensSpent = 940;
+    world.state.towersBuilt = 15;
+    world.state.towersSold = 2;
+    world.state.time = 486;
+    world.state.coreHp = 17;
     world.forceWin();
     runSteps(world, 0.5);
     return { screen: 'win' };

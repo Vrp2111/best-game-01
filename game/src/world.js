@@ -13,11 +13,15 @@
 // routing light so the right colour meets the right creature.
 import {
   BEAM_BASE_DPS, COLORS, CORE_CELL, DIR, DIR_ORDER, FIELD, GREEN_HEAL_ON_KILL,
-  HP_SCALE_PER_WAVE, LENS_MULTIPLIER, MAX_BEAM_SEGMENTS, MAX_BEAMS, MAX_CORE_HP,
-  MIRROR_REFLECT, PATH, PRISM_SPLIT, SELL_REFUND, SLOW_DURATION, SLOW_FACTOR,
-  SPEED_SCALE_PER_WAVE, START_CORE_HP, START_LUMENS, TOTAL_WAVES, TOWERS,
-  TURN, WAVES, WAVE_CLEAR_BONUS, ENEMIES, SPAWN_CELL,
+  HP_SCALE_PER_WAVE, MAX_BEAM_SEGMENTS, MAX_BEAMS, MIRROR_REFLECT, PATH,
+  PRISM_SPLIT, SLOW_DURATION, SPEED_SCALE_PER_WAVE, START_CORE_HP, START_LUMENS, TOTAL_WAVES,
+  TOWERS, TURN, WAVES, WAVE_CLEAR_BONUS, ENEMIES, SPAWN_CELL,
 } from './config.js';
+import {
+  RITE_BY_ID, clearBonus, damageMultiplier, graceArmed, killBonus,
+  lensMultiplier, offerRites, quadSplit, sellRate, slowFactor, toughMultiplier,
+  towerCost, widthMultiplier,
+} from './rites.js';
 
 export const EVENT_KILL = 1;
 export const EVENT_LEAK = 2;
@@ -80,6 +84,7 @@ export function createWorld(random) {
     lumens: START_LUMENS,
     score: 0,
     coreHp: START_CORE_HP,
+    maxHp: START_CORE_HP,
     wave: 1,
     waveActive: false,
     kills: 0,
@@ -98,6 +103,15 @@ export function createWorld(random) {
     attractTimer: 0,
     over: false,
     won: false,
+    // Prism Rites (R1): permanent boons drafted between waves, id -> times taken.
+    rites: {},
+    graceUsed: false,
+    // Results screen (R3): everything the report card shows.
+    damageDealt: 0,
+    lumensEarned: 0,
+    lumensSpent: 0,
+    towersBuilt: 0,
+    towersSold: 0,
   };
   // grid[row][col] = null or { type, dir, mirror }
   let grid = [];
@@ -114,6 +128,7 @@ export function createWorld(random) {
     state.lumens = START_LUMENS;
     state.score = 0;
     state.coreHp = START_CORE_HP;
+    state.maxHp = START_CORE_HP;
     state.wave = 1;
     state.waveActive = false;
     state.kills = 0;
@@ -132,6 +147,13 @@ export function createWorld(random) {
     state.attractTimer = 0;
     state.over = false;
     state.won = false;
+    state.rites = {};
+    state.graceUsed = false;
+    state.damageDealt = 0;
+    state.lumensEarned = 0;
+    state.lumensSpent = 0;
+    state.towersBuilt = 0;
+    state.towersSold = 0;
   }
 
   function inBounds(col, row) {
@@ -148,8 +170,12 @@ export function createWorld(random) {
 
   function placeTower(col, row, type, dir = 'E') {
     const def = TOWERS[type];
-    if (!def || !canPlace(col, row) || state.lumens < def.cost) return false;
-    state.lumens -= def.cost;
+    if (!def || !canPlace(col, row)) return false;
+    const cost = towerCost(state, type);
+    if (state.lumens < cost) return false;
+    state.lumens -= cost;
+    state.lumensSpent += cost;
+    state.towersBuilt += 1;
     grid[row][col] = { type, dir, mirror: '/' };
     return true;
   }
@@ -157,9 +183,30 @@ export function createWorld(random) {
   function removeTower(col, row) {
     const tower = towerAt(col, row);
     if (!tower) return false;
-    state.lumens += Math.floor(TOWERS[tower.type].cost * SELL_REFUND);
+    state.lumens += Math.floor(TOWERS[tower.type].cost * sellRate(state));
+    state.towersSold += 1;
     grid[row][col] = null;
     return true;
+  }
+
+  /**
+   * Take a Prism Rite (R1): the choice is permanent for the run. Vitality
+   * also raises the Lantern's max HP and heals at once. Returns false for an
+   * unknown id.
+   */
+  function applyRite(id) {
+    if (!RITE_BY_ID[id]) return false;
+    state.rites[id] = (state.rites[id] ?? 0) + 1;
+    if (id === 'vitality') {
+      state.maxHp += 2;
+      state.coreHp = Math.min(state.maxHp, state.coreHp + 2);
+    }
+    return true;
+  }
+
+  /** Draw the draft offer of three rites from the world's seeded random. */
+  function drawOffer() {
+    return offerRites(random, state);
   }
 
   function rotateTower(col, row) {
@@ -246,7 +293,7 @@ export function createWorld(random) {
         continue;
       }
       if (tower.type === 'lens') {
-        damage *= LENS_MULTIPLIER;
+        damage *= lensMultiplier(state);
         w *= 0.6;
         col = nc;
         row = nr;
@@ -260,6 +307,10 @@ export function createWorld(random) {
         queue.push({ origin: centre, dir: d, color: PRISM_SPLIT.straight, dps: damage, width: w });
         queue.push({ origin: centre, dir: TURN[d].left, color: PRISM_SPLIT.left, dps: damage, width: w });
         queue.push({ origin: centre, dir: TURN[d].right, color: PRISM_SPLIT.right, dps: damage, width: w });
+        // Quad Prism rite: a fourth, white beam joins the split, straight on.
+        if (quadSplit(state)) {
+          queue.push({ origin: centre, dir: d, color: 'white', dps: damage, width: w });
+        }
         break;
       }
       // Any other tower (an emitter) absorbs the beam.
@@ -274,7 +325,11 @@ export function createWorld(random) {
       for (let c = 0; c < FIELD.cols; c += 1) {
         const tower = grid[r][c];
         if (tower && tower.type === 'emitter') {
-          queue.push({ origin: cellCenter(c, r), dir: tower.dir, color: 'white', dps: BEAM_BASE_DPS, width: 10 });
+          queue.push({
+            origin: cellCenter(c, r), dir: tower.dir, color: 'white',
+            dps: BEAM_BASE_DPS * damageMultiplier(state),
+            width: 10 * widthMultiplier(state),
+          });
         }
       }
     }
@@ -299,7 +354,13 @@ export function createWorld(random) {
   }
 
   // --- Enemies -------------------------------------------------------------
-  function spawnEnemy(type) {
+  // R2 spawn fix: every shadow is born with a small random offset from the
+  // path centre (±22 px) and a short stagger behind the gate (0–96 px, so
+  // the next few are still inside the gate when the first one steps out).
+  // Before this, every spawn sat exactly on the path centre at dist 0, so a
+  // wave arrived as one perfect conga line — in the cover shot it read like
+  // a rendering bug. Now the horde walks in as a loose, organic group.
+  function spawnEnemy(type, stagger = 0) {
     const def = ENEMIES[type];
     const hpScale = 1 + HP_SCALE_PER_WAVE * (state.wave - 1);
     const speedScale = 1 + SPEED_SCALE_PER_WAVE * (state.wave - 1);
@@ -310,8 +371,11 @@ export function createWorld(random) {
       maxHp: Math.round(def.hp * hpScale),
       speed: def.speed * speedScale,
       radius: def.radius,
-      dist: 0,
+      dist: stagger,
       x: pos.x, y: pos.y,
+      // A fixed lateral offset per shadow: the horde never walks single-file.
+      ox: (random() - 0.5) * 44,
+      oy: (random() - 0.5) * 44,
       slowUntil: 0,
       greenHit: false,
       wobble: random() * Math.PI * 2,
@@ -321,9 +385,11 @@ export function createWorld(random) {
   function buildSpawnQueue(wave) {
     const queue = [];
     let t = 0.5;
+    let spawned = 0;
     for (const group of WAVES[wave - 1]) {
       for (let i = 0; i < group.count; i += 1) {
-        queue.push({ type: group.type, at: t });
+        queue.push({ type: group.type, at: t, stagger: -(spawned % 5) * 24 });
+        spawned += 1;
         t += group.gap;
       }
       t += 0.8;
@@ -366,21 +432,22 @@ export function createWorld(random) {
     } else if (state.waveActive) {
       state.spawnTimer += dt;
       while (state.spawnQueue.length > 0 && state.spawnQueue[0].at <= state.spawnTimer) {
-        spawnEnemy(state.spawnQueue.shift().type);
+        const next = state.spawnQueue.shift();
+        spawnEnemy(next.type, next.stagger ?? 0);
         state.spawnLeft -= 1;
       }
     }
 
     computeBeams();
 
-    // Move enemies along the path.
+    // Move enemies along the path (plus their fixed lateral offset).
     for (const enemy of state.enemies) {
       const slowed = state.time < enemy.slowUntil;
-      const speed = enemy.speed * (slowed ? SLOW_FACTOR : 1);
+      const speed = enemy.speed * (slowed ? slowFactor(state) : 1);
       enemy.dist += speed * dt;
       const pos = pointOnPath(enemy.dist);
-      enemy.x = pos.x;
-      enemy.y = pos.y + Math.sin(state.time * 6 + enemy.wobble) * 2;
+      enemy.x = pos.x + enemy.ox;
+      enemy.y = pos.y + Math.sin(state.time * 6 + enemy.wobble) * 2 + enemy.oy;
     }
 
     // Beam damage: every segment against every enemy.
@@ -394,7 +461,9 @@ export function createWorld(random) {
         let mult = 1;
         if (seg.color === enemy.def.weak) mult = 2;
         else if (seg.color === enemy.def.resist) mult = 0.5;
-        enemy.hp -= seg.dps * colour.damage * mult * dt;
+        const dealt = seg.dps * colour.damage * mult * toughMultiplier(state, enemy.type) * dt;
+        enemy.hp -= dealt;
+        state.damageDealt += dealt;
         if (seg.color === 'blue' && state.time >= enemy.slowUntil) enemy.slowUntil = state.time + SLOW_DURATION;
         if (seg.color === 'green') enemy.greenHit = true;
       }
@@ -406,14 +475,16 @@ export function createWorld(random) {
       if (enemy.hp > 0) continue;
       state.enemies.splice(i, 1);
       state.kills += 1;
-      state.lumens += enemy.def.reward;
-      state.score += enemy.def.reward * 10;
+      const reward = enemy.def.reward + killBonus(state);
+      state.lumens += reward;
+      state.lumensEarned += reward;
+      state.score += reward * 10;
       burst(enemy.x, enemy.y, COLORS[enemy.def.weak].css, 14, 130);
       burst(enemy.x, enemy.y, '#ffffff', 5, 80);
-      floater(enemy.x, enemy.y - 18, `+${enemy.def.reward}`, '#ffd166');
+      floater(enemy.x, enemy.y - 18, `+${reward}`, '#ffd166');
       events |= EVENT_KILL;
-      if (enemy.greenHit && state.coreHp < MAX_CORE_HP) {
-        state.coreHp = Math.min(MAX_CORE_HP, state.coreHp + GREEN_HEAL_ON_KILL);
+      if (enemy.greenHit && state.coreHp < state.maxHp) {
+        state.coreHp = Math.min(state.maxHp, state.coreHp + GREEN_HEAL_ON_KILL);
         const core = cellCenter(CORE_CELL.col, CORE_CELL.row);
         burst(core.x, core.y, COLORS.green.css, 8, 70);
         floater(core.x, core.y - 30, '+1', COLORS.green.css);
@@ -428,8 +499,18 @@ export function createWorld(random) {
       state.enemies.splice(i, 1);
       if (state.attract) continue; // the title demo never hurts the Lantern
       state.leaked += 1;
-      state.coreHp -= enemy.def.leak;
       const core = cellCenter(CORE_CELL.col, CORE_CELL.row);
+      // Lantern's Grace: the one-time save — the run lives at 1 HP.
+      if (state.coreHp - enemy.def.leak <= 0 && graceArmed(state)) {
+        state.graceUsed = true;
+        state.coreHp = 1;
+        burst(core.x, core.y, '#ffd166', 20, 160);
+        floater(core.x, core.y - 30, 'GRACE!', '#ffd166');
+        state.shake = 9;
+        events |= EVENT_HEAL;
+        continue;
+      }
+      state.coreHp -= enemy.def.leak;
       burst(core.x, core.y, '#ff4d6d', 16, 150);
       floater(core.x, core.y - 30, `-${enemy.def.leak}`, '#ff4d6d');
       state.shake = 9;
@@ -446,8 +527,9 @@ export function createWorld(random) {
     // Wave clear.
     if (!state.attract && state.waveActive && state.spawnQueue.length === 0 && state.enemies.length === 0) {
       state.waveActive = false;
-      const bonus = WAVE_CLEAR_BONUS(state.wave);
+      const bonus = WAVE_CLEAR_BONUS(state.wave) + clearBonus(state);
       state.lumens += bonus;
+      state.lumensEarned += bonus;
       state.score += 100 * state.wave;
       floater(FIELD.width / 2, FIELD.height / 2 - 40, `WAVE ${state.wave} CLEAR  +${bonus}`, '#ffd166');
       events |= EVENT_WAVE_CLEAR;
@@ -525,6 +607,6 @@ export function createWorld(random) {
     reset, step, startWave, wavePreview,
     placeTower, removeTower, rotateTower, canPlace, towerAt,
     computeBeams, previewBeam, setAttract, debugSetup, forceWin, forceLose,
-    placeTowerFree,
+    placeTowerFree, applyRite, drawOffer,
   };
 }

@@ -88,7 +88,7 @@ export function createRenderer(canvas) {
 
   function drawCore(state, time) {
     const { x, y } = cellXY(CORE_CELL.col, CORE_CELL.row);
-    const hpFrac = state.coreHp / 20;
+    const hpFrac = state.coreHp / state.maxHp;
     const pulse = 0.75 + 0.25 * Math.sin(time * 2.6);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';

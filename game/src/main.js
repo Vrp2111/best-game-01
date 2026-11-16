@@ -29,9 +29,11 @@
 // ?seed=N fixes the random stream. ?shot=title|mid|late|victory (with
 // &seed=N) stages that scene instead of running the loop, paints it twice
 // and sets window.__shotReady for a screenshot.
-import { BEST_KEY, ENEMIES, FIELD, STEP, TOTAL_WAVES, TOWER_ORDER, TOWERS } from './config.js';
+import { BEST_GRADE_KEY, BEST_KEY, ENEMIES, FIELD, STEP, TOTAL_WAVES, TOWER_ORDER, TOWERS } from './config.js';
 import { createRandom } from './random.js';
 import { createWorld, EVENT_HEAL, EVENT_KILL, EVENT_LEAK, EVENT_LOSE, EVENT_WAVE_CLEAR, EVENT_WIN } from './world.js';
+import { RITE_BY_ID, totalRites } from './rites.js';
+import { computeResults } from './results.js';
 import { createRenderer } from './render.js';
 import { createAudio } from './audio.js';
 import { stageShot } from './shots.js';
@@ -52,7 +54,7 @@ const audio = createAudio();
 
 const $ = (id) => document.getElementById(id);
 const ui = {
-  screen: 'title', // title | play | paused | win | lose
+  screen: 'title', // title | play | paused | draft | win | lose
   placing: null, // tower type being placed, or null
   placingDir: 'E',
   placingMirror: '/',
@@ -62,6 +64,8 @@ const ui = {
   selectedCell: null, // { col, row } of a placed tower, or null
   speed: 1,
   best: 0,
+  bestGrade: '',
+  draft: null, // the current draft offer (array of rite defs) or null
 };
 
 function readBest() {
@@ -78,6 +82,27 @@ function saveBest(value) {
   } catch {
     // Storage can be off (private windows): the best score then lasts this visit only.
   }
+}
+
+function readBestGrade() {
+  try {
+    return window.localStorage.getItem(BEST_GRADE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function saveBestGrade(value) {
+  try {
+    window.localStorage.setItem(BEST_GRADE_KEY, value);
+  } catch {
+    // Same as saveBest: best grade is a nice-to-have, not a must.
+  }
+}
+
+function bestLine() {
+  if (ui.best <= 0) return '';
+  return ui.bestGrade ? `Best score: ${ui.best} · Grade ${ui.bestGrade}` : `Best score: ${ui.best}`;
 }
 
 function announce(message) {
@@ -163,11 +188,17 @@ function updateHUD() {
   const s = world.state;
   setText('statWave', `${Math.min(s.wave, TOTAL_WAVES)} / ${TOTAL_WAVES}`);
   setText('statLumens', `◈ ${s.lumens}`);
-  setText('coreText', `${s.coreHp} / 20`);
-  $('coreFill').style.width = `${(s.coreHp / 20) * 100}%`;
+  setText('coreText', `${s.coreHp} / ${s.maxHp}`);
+  $('coreFill').style.width = `${(s.coreHp / s.maxHp) * 100}%`;
   setText('statScore', String(s.score));
   const shadows = s.enemies.length + (s.waveActive ? s.spawnLeft : 0);
   setText('statEnemies', String(shadows));
+  // Prism Rites taken this run (cached: only rebuilt when the count changes).
+  const ritesTaken = totalRites(s);
+  if (hudCache.rites !== ritesTaken) {
+    hudCache.rites = ritesTaken;
+    refreshRitesList();
+  }
   // Wave button.
   const btn = $('btnWave');
   if (s.over) {
@@ -293,6 +324,47 @@ function rotatePlacing() {
   updatePreview();
 }
 
+// --- Prism Rites draft -----------------------------------------------------
+// After a wave clears, the game pauses on the draft screen: three permanent
+// blessings, pick one (click or keys 1/2/3). The pick lasts the whole run
+// and is listed in the sidebar, so every run grows a different build.
+function refreshRitesList() {
+  const el = $('ritesList');
+  const entries = Object.entries(world.state.rites).filter(([, n]) => n > 0);
+  if (entries.length === 0) {
+    el.textContent = 'No rites yet — clear a wave to draft one.';
+    return;
+  }
+  el.innerHTML = entries.map(([id, n]) => {
+    const rite = RITE_BY_ID[id];
+    return `<div>${rite.icon} ${rite.name}${n > 1 ? ` ×${n}` : ''}</div>`;
+  }).join('');
+}
+
+function openDraft(offer) {
+  ui.draft = offer;
+  ui.screen = 'draft';
+  $('draftWave').textContent = `Wave ${Math.min(world.state.wave - 1, TOTAL_WAVES)} clear — choose one blessing. It lasts the whole run.`;
+  offer.forEach((rite, i) => {
+    const card = $(`rite${i}`);
+    card.innerHTML = `<span class="rite-icon">${rite.icon}</span><span class="rite-name">${rite.name}</span><span class="rite-desc">${rite.desc}</span><span class="rite-key">Press ${i + 1}</span>`;
+  });
+  showOverlay('draftOverlay');
+  announce('Draft: choose one Prism Rite.');
+}
+
+function pickRite(index) {
+  if (ui.screen !== 'draft' || !ui.draft || !ui.draft[index]) return;
+  const rite = ui.draft[index];
+  world.applyRite(rite.id);
+  audio.select();
+  ui.draft = null;
+  ui.screen = 'play';
+  showOverlay(null);
+  refreshRitesList();
+  announce(`${rite.name} taken.`);
+}
+
 // --- Keyboard --------------------------------------------------------------
 window.addEventListener('keydown', (event) => {
   if (event.repeat) return;
@@ -316,6 +388,14 @@ window.addEventListener('keydown', (event) => {
     else if (ui.screen === 'play' || ui.screen === 'paused') togglePause();
     return;
   }
+  if (ui.screen === 'draft') {
+    const pick = { Digit1: 0, Digit2: 1, Digit3: 2 }[code];
+    if (pick !== undefined) {
+      event.preventDefault();
+      pickRite(pick);
+    }
+    return;
+  }
   if (ui.screen !== 'play') return;
   if (code === 'KeyR') {
     if (ui.placing) rotatePlacing();
@@ -335,7 +415,7 @@ window.addEventListener('keydown', (event) => {
 
 // --- Screens ---------------------------------------------------------------
 function showOverlay(id) {
-  for (const overlay of ['titleOverlay', 'winOverlay', 'loseOverlay', 'pauseOverlay']) {
+  for (const overlay of ['titleOverlay', 'winOverlay', 'loseOverlay', 'pauseOverlay', 'draftOverlay']) {
     $(overlay).hidden = overlay !== id;
   }
 }
@@ -347,8 +427,10 @@ function startGame() {
   ui.screen = 'play';
   ui.placing = null;
   ui.selectedCell = null;
+  ui.draft = null;
   ui.speed = 1;
   selectPlacing(null);
+  refreshRitesList();
   showOverlay(null);
   announce('Playing. Defend the Lantern. Place towers, then start wave 1.');
 }
@@ -377,30 +459,47 @@ function togglePause() {
 function endGame(won) {
   const s = world.state;
   ui.screen = won ? 'win' : 'lose';
-  if (s.score > ui.best) {
+  const results = computeResults(s, ui.best > 0 ? { score: ui.best, grade: ui.bestGrade } : null);
+  if (results.isBest) {
     ui.best = s.score;
+    ui.bestGrade = results.grade.letter;
     saveBest(ui.best);
+    saveBestGrade(ui.bestGrade);
   }
-  const stats = `Score ${s.score} · ${s.kills} shadows shattered · ${s.leaked} leaked · reached wave ${Math.min(s.wave, TOTAL_WAVES)} / ${TOTAL_WAVES}`;
+  fillResults(won ? 'win' : 'lose', results);
+  showOverlay(won ? 'winOverlay' : 'loseOverlay');
   if (won) {
-    $('winStats').textContent = stats;
-    $('winBest').textContent = ui.best > 0 ? `Best score: ${ui.best}` : '';
-    showOverlay('winOverlay');
     audio.victory();
-    announce(`Victory. ${stats}`);
+    announce(`Victory. Grade ${results.grade.letter}. ${results.grade.reason}`);
   } else {
-    $('loseStats').textContent = stats;
-    $('loseBest').textContent = ui.best > 0 ? `Best score: ${ui.best}` : '';
-    showOverlay('loseOverlay');
     audio.defeat();
-    announce(`Defeat. ${stats}`);
+    announce(`Defeat. Grade ${results.grade.letter}. ${results.grade.reason}`);
   }
+}
+
+/** Fill a win/lose panel with the full report card (R3). */
+function fillResults(prefix, results) {
+  $(`${prefix}Grade`).textContent = results.grade.letter;
+  $(`${prefix}GradeReason`).textContent = results.grade.reason;
+  $(`${prefix}Stats`).innerHTML = results.stats
+    .map(({ label, value }) => `<div class="stat-cell"><span>${label}</span><b>${value}</b></div>`)
+    .join('');
+  $(`${prefix}Rites`).innerHTML = results.ritesTaken.length === 0
+    ? 'No rites drafted this run.'
+    : results.ritesTaken
+      .map(({ icon, name, count }) => `<span class="rite-chip">${icon} ${name}${count > 1 ? ` ×${count}` : ''}</span>`)
+      .join('');
+  $(`${prefix}Goal`).textContent = `Next goal: ${results.nextGoal}`;
+  $(`${prefix}Best`).textContent = bestLine();
 }
 
 $('btnStart').addEventListener('click', startGame);
 $('btnWinAgain').addEventListener('click', startGame);
 $('btnLoseAgain').addEventListener('click', startGame);
 $('btnResume').addEventListener('click', togglePause);
+for (let i = 0; i < 3; i += 1) {
+  $(`rite${i}`).addEventListener('click', () => pickRite(i));
+}
 $('btnWave').addEventListener('click', startWave);
 $('btnPause').addEventListener('click', () => {
   if (ui.screen === 'play' || ui.screen === 'paused') togglePause();
@@ -424,17 +523,20 @@ function handleEvents(events) {
   if (events & EVENT_KILL) audio.death();
   if (events & EVENT_LEAK) audio.leak();
   if (events & EVENT_HEAL) audio.heal();
-  if (events & EVENT_WAVE_CLEAR) {
-    audio.waveClear();
-    announce(`Wave ${world.state.wave - 1} clear.`);
-  }
   if (events & EVENT_WIN) endGame(true);
   else if (events & EVENT_LOSE) endGame(false);
+  else if (events & EVENT_WAVE_CLEAR) {
+    audio.waveClear();
+    announce(`Wave ${world.state.wave - 1} clear.`);
+    // The draft (R1): pause on the Prism Rites screen before the next wave.
+    openDraft(world.drawOffer());
+  }
 }
 
 function runGame() {
   ui.best = readBest();
-  $('titleBest').textContent = ui.best > 0 ? `Best score: ${ui.best}` : '';
+  ui.bestGrade = readBestGrade();
+  $('titleBest').textContent = bestLine();
   world.setAttract(true);
   showOverlay('titleOverlay');
   announce('PRISMWARD. Press Space or click Start to play.');
@@ -475,10 +577,10 @@ function runShot(name) {
   if (staged.screen === 'title') {
     showOverlay('titleOverlay');
   } else if (staged.screen === 'win') {
-    const s = world.state;
-    $('winStats').textContent = `Score ${s.score} · ${s.kills} shadows shattered · ${s.leaked} leaked · reached wave 10 / 10`;
-    $('winBest').textContent = '';
+    fillResults('win', computeResults(world.state, null));
     showOverlay('winOverlay');
+  } else if (staged.screen === 'draft') {
+    openDraft(staged.offer);
   } else {
     showOverlay(null);
   }
@@ -496,11 +598,14 @@ function runShot(name) {
 // --- Debug hook (used by the screenshot and playtest scripts) --------------
 window.__prismward = {
   world,
-  version: '1.0.0',
+  version: '1.1.0',
   get state() { return world.state; },
   get screen() { return ui.screen; },
+  get draft() { return ui.draft; },
   start: startGame,
   startWave,
+  pickRite,
+  openDraft: () => { if (ui.screen === 'play') openDraft(world.drawOffer()); },
   place: (type, col, row, dir = 'E') => world.placeTowerFree(col, row, type, dir),
   setLumens: (n) => world.debugSetup({ lumens: n }),
   setWave: (n) => world.debugSetup({ wave: n }),
