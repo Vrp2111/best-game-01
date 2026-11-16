@@ -1,12 +1,15 @@
-// A working best-game-01 entry (Node 22, standard library only): the game is this directory's
-// game/ folder, plain static files a desktop browser loads offline (game/index.html and its ES
-// modules, no library and no network request), and the program hands it in. It copies game/ and
-// screenshots/ from beside this file to /output and writes /output/dossier.json, the summary the
-// judge reads, with the vendored make.fun library. A starting point, not a winner: Block Dodger, a
-// plain 2D canvas game where a paddle dodges falling blocks and catches coins, with a title screen,
-// score, lives and levels, game over and restart, flat colours and no sound. Build your own game
-// (any genre, any library you vendor under game/, or none), put your 3 or 4 PNG or JPEG screenshots
-// in screenshots/ (the first by name is the cover) and run it.
+// PRISMWARD — a light tower defense (best-game-01 entry, Node 22, standard library only).
+// The game is this directory's game/ folder: plain static files a desktop browser loads offline
+// (game/index.html and its ES modules, no library and no network request). Shadows crawl out of
+// the dark to eat the Lantern, and the player's only weapon is light: an Emitter fires a white
+// beam, a Mirror bends it 90 degrees, a Prism splits it into three coloured beams (red straight
+// for 2x damage, blue left that slows shadows 50%, green right whose kills heal the Lantern +1),
+// and a Lens doubles a beam's damage. Every shadow wears a glowing ring in the colour it is weak
+// to (2x) and resists another (0.5x), so winning means routing the right colour to the right
+// shadow. Survive all 10 waves; if the Lantern's HP reaches 0, the light dies.
+// This program hands the game in: it copies game/ and screenshots/ from beside this file to
+// /output and writes /output/dossier.json, the summary the judge reads, with the vendored
+// make.fun library (vendor/makefun-game.ts).
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
