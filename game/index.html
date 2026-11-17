@@ -48,6 +48,7 @@
   #selected button { font: inherit; font-size: 12px; font-weight: 700; color: #eef1ff; background: #1c2242;
     border: 1px solid #3a4272; border-radius: 7px; padding: 5px 10px; cursor: pointer; margin: 6px 6px 0 0; }
   #selected button:hover { background: #28305c; }
+  #selected button:disabled { opacity: 0.45; cursor: default; }
   .legend { font-size: 12.5px; line-height: 1.65; color: #c6cde8; }
   .dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; vertical-align: -1px;
     box-shadow: 0 0 8px currentColor; }
@@ -78,6 +79,24 @@
   .panel .bigbtn:hover { filter: brightness(1.08); }
   .panel .stats { font-size: 14px; color: #eef1ff; line-height: 1.8; }
   .panel .best { font-size: 12px; color: #9aa3c7; margin-top: 10px; }
+  /* ---------- boss bar (v1.2) ---------- */
+  #bossbar { flex: 0 0 34px; display: flex; align-items: center; gap: 12px; padding: 0 14px;
+    background: linear-gradient(180deg, #1a0b1e, #120818); border-bottom: 1px solid #5c2340; }
+  #bossbar[hidden] { display: none; }
+  #bossName { font-size: 13px; font-weight: 800; letter-spacing: 1px; color: #ffe08a; white-space: nowrap; }
+  .bossbar-track { flex: 1; height: 12px; background: #1a1f38; border: 1px solid #5c2340; border-radius: 6px; overflow: hidden; }
+  #bossFill { height: 100%; width: 100%; background: linear-gradient(90deg, #ff4d6d, #ff9a3d); transition: width 0.2s; }
+  #bossPhase { font-size: 13px; font-weight: 800; letter-spacing: 2px; white-space: nowrap; }
+  /* ---------- difficulty pick (v1.2) ---------- */
+  #difficulty { display: flex; gap: 10px; justify-content: center; margin: 12px 0 2px; }
+  .diff-btn { font: inherit; color: #eef1ff; background: #0a0d1f; border: 1px solid #2a3160; border-radius: 12px;
+    padding: 10px 14px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 180px; }
+  .diff-btn:hover { border-color: #5a6bc0; }
+  .diff-btn.selected { border-color: #ffd166; box-shadow: 0 0 0 1px #ffd166, 0 0 16px rgba(255, 209, 102, 0.3); }
+  .diff-icon { font-size: 26px; line-height: 1; }
+  .diff-name { font-size: 15px; font-weight: 800; }
+  .diff-tag { font-size: 11px; letter-spacing: 2px; color: #9aa3c7; text-transform: uppercase; }
+  .diff-desc { font-size: 12px; line-height: 1.4; color: #c6cde8; text-align: center; }
   /* ---------- results screen (R3) ---------- */
   .grade { font-size: 84px; line-height: 1; font-weight: 800; color: #ffd166;
     text-shadow: 0 0 26px rgba(255, 209, 102, 0.85), 0 0 80px rgba(255, 209, 102, 0.4); }
@@ -121,6 +140,7 @@
     <button id="btnMute" type="button">🔊 Sound</button>
     <button id="btnRestart" type="button">↻ Restart</button>
   </header>
+  <div id="bossbar" hidden><span id="bossName"></span><div class="bossbar-track"><div id="bossFill"></div></div><span id="bossPhase"></span></div>
   <div id="main">
     <canvas id="game" width="960" height="640" aria-label="PRISMWARD: defend the Lantern with light. Place emitters, mirrors and prisms, then start the wave."></canvas>
     <aside id="side">
@@ -162,6 +182,7 @@
       Every shadow wears a glowing ring in the colour it is <b>weak</b> to. Route the right colour to the right shadow.
     </div>
     <p style="font-size:13px">Survive all <b style="color:#fff">10 waves</b>. A shadow that reaches the Lantern bites off health. Build with lumens earned from kills.</p>
+    <div id="difficulty"></div>
     <button class="bigbtn" id="btnStart" type="button">▶ &nbsp;START GAME</button>
     <div class="best" id="titleBest"></div>
   </div>
