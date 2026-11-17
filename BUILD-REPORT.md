@@ -118,3 +118,113 @@ di-parse — gagal di depan, bukan di grader.
 - Kuota best-game-01 saat rework dipilih: day cap 3, terpakai 1, sisa 2; hard limit
   sisa 19. Resubmit menggantikan submission `01a1e24d` (Force_Last) — skor lama
   797.347 akan hilang dan diganti skor baru (bisa lebih tinggi ATAU lebih rendah).
+
+---
+
+# PRISMWARD — Laporan Rework v1.2 (best-game-01)
+
+**Tanggal:** 17 November 2026, ~10:43–11:xx WIB
+**Entry saat ini:** v1.1 judge 818.754 (81,88%), rank 121/7.367, cutoff top-10 929.795 (gap 111.041)
+**Verdict analisis v1.2:** NO-GO (peluang top 10 <5%) — Garflied memilih rework tetap jalan.
+**Tujuan rework:** menutup tiga celah terakhir yang terlihat dari analisis pemenang —
+upgrade tower 0, boss single-phase, difficulty 0 — semuanya sistem yang judge
+bisa LIHAT di screenshot.
+
+## Yang berubah
+
+### U1 — Tower upgrades Lv2/Lv3 + panel upgrade
+- Setiap tower bisa di-upgrade dua kali dari panel tower terpilih (sidebar):
+  Emitter +50%/+100% damage (beam lebih lebar), Mirror +25%/+50% damage beam
+  yang dibelokkan, Prism +25%/+50% damage split, Lens ×2.5/×3.
+  Biaya: Emitter 40/90, Mirror 15/35, Prism 50/110, Lens 60/130 lumens.
+- Tower ter-upgrade TERLIHAT: pip emas di bawah tower (satu pip per level)
+  + ring emas di level max. Jual tower mengembalikan seluruh investasi
+  (build + upgrade) di rate jual run — `sellValue` pakai `Math.round`
+  (bukan floor: 180 × 0.7 = 125.9999… di float, floor mencuri 1 lumen).
+- File baru `game/src/upgrades.js` (174 baris) + `game/src/upgradeui.js`
+  (123 baris, panel DOM + boss bar + pilih difficulty).
+
+### U2 — Boss 3 fase: Dread Colossus
+- File baru `game/src/boss.js` (213 baris). Fase I (100–67% HP) jalan
+  normal; Fase II ENRAGED (66–34%) lari ×1.35 dengan ring oranye; Fase III
+  DESPERATE (≤33%) lari ×1.6 dan menetas 1 mote tiap 5 detik (max 6).
+  Tiap transisi menembakkan banner besar di tengah board + boss bar di atas
+  field (nama, fase, HP bar, pip fase) + label + pip fase di atas boss.
+- Screenshot #3 (`3-boss.jpg`) adalah momen fase II: banner
+  "THE COLOSSUS RAGES — PHASE II", boss bar, ring oranye. (Catatan staging:
+  banner memakai `state.time` untuk fade-in — scene boss menjalankan 0,5
+  detik sim ekstra setelah fase berubah supaya banner penuh saat difoto.)
+
+### U3 — Difficulty Easy / Normal / Hard
+- File baru `game/src/difficulty.js` (94 baris). Dipilih di title screen
+  sebelum run: Easy (musuh HP ×0.8, speed ×0.9, 170 lumens, 25 HP),
+  Normal (v1.1, tidak berubah), Hard (HP ×1.35, speed ×1.15, 110 lumens,
+  15 HP). Hasil akhir mencatat difficulty + jumlah upgrade (kini 12 stat).
+
+## File yang berubah
+- Baru: `game/src/upgrades.js`, `game/src/boss.js`, `game/src/difficulty.js`,
+  `game/src/upgradeui.js` (total 604 baris, semua ditulis dari nol di sesi ini)
+- Diubah: `game/src/world.js` (wiring upgrade/boss/difficulty, +94/−~20),
+  `game/src/render.js` (pip level, ring + marker boss, banner),
+  `game/src/main.js` (panel delegasi ke upgradeui.js, boss bar, difficulty,
+  debug hook upgrade/setDifficulty, versi 1.2.0),
+  `game/src/shots.js` (scene `boss` + tower ter-upgrade di scene late/victory),
+  `game/src/results.js` (stat Difficulty + Tower upgrades),
+  `game/index.html` (boss bar + pemilih difficulty + CSS),
+  `main.ts` (2× edit: daftar file checkGame + header v1.2),
+  `README.md` (bagian v1.2), `shots.json` (3-mid.jpg → 3-boss.jpg).
+- Dihapus: `screenshots/3-mid.jpg` (diganti `3-boss.jpg`).
+
+## Verifikasi (semua dijalankan, bukan klaim)
+
+### Playtest interaktif Playwright — 61/61 PASS, 0 console error
+`~/workspace/makefun/tools/bg01/playtest.mjs` (diperluas v1.2): 3 tombol
+difficulty + Normal default; Hard → 110 lumens/15 HP; Easy → 170/25;
+Normal → 140/20; upgrade Lv2 (−40) → Lv3 (−90) lewat panel asli, MAX
+tanpa tombol upgrade, jual refund 126 (180 × 0.7, sudah dibetulkan dari
+125 karena float); rebuild setelah jual; draft, pause, mute, win/lose
+(12 stat), semua 6 scene `?shot=` termasuk `boss` (boss bar tampil,
+"PHASE II: ENRAGED", boss benar fase II di frame).
+
+### Balance sim — game tetap bisa menang DAN bisa kalah
+`~/workspace/makefun/tools/bg01/sim.mjs` (5 seed per skenario):
+STRONG/REALISTIC menang 5/5 di semua difficulty; WEAK + draft + upgrade
+menang 5/5 tapi di HARD satu seed tersisa HP 2/15 (HARD menggigit);
+TWO emitters 0/5 (kalah wave 4–6 bahkan di Easy); NO towers 0/5.
+Semua run menang mencapai boss fase 3 (maxBossPhase 3) — ketiga fase
+benar-benar terjadi. Upgrade terbeli: STRONG 30 (semua max), REALISTIC
+21–30, WEAK 8 (semua max).
+
+### Screenshot (1280×720 JPEG, semua ≤256 KiB, dilihat langsung)
+| File | Ukuran | Isi |
+|---|---|---|
+| `1-cover.jpg` | 159.256 B | Wave 9, circuit penuh, ring emas tower Lv3 |
+| `2-draft.jpg` | 63.911 B | Prism Rites, 3 kartu |
+| `3-boss.jpg` | 167.916 B | Wave 10 fase II: banner besar + boss bar + ring oranye |
+| `4-victory.jpg` | 73.608 B | Grade S + 12 stat (Difficulty, Tower upgrades 7) |
+
+### Dossier
+`main.ts` dijalankan 2× → output **byte-identik**. Dossier text
+**131.112 byte** (cap 163.840, naik dari 98.153 — 80% cap), 4 gambar,
+`images[0]` = `1-cover.jpg`, `game/` 14 file (cap 993).
+
+## Yang sengaja TIDAK dilakukan
+- **Tidak menambah kontrol langsung (aim beam) atau map/act ke-2.** Analisis
+  v1.2 menilai keduanya tidak aman dalam 38 jam (rebuild mekanik +
+  rebalance penuh / konten mentah diminishing return).
+- **Tidak mengubah angka damage/HP musuh di Normal.** Balance v1.1
+  dipertahankan; upgrade + fase boss + difficulty adalah lapisan baru,
+  dan sim membuktikan game tetap bisa kalah.
+- **Tidak submit / push / buat repo.** Itu tugas parent agent.
+
+## Catatan untuk resubmit (untuk parent)
+- **Bundle HARUS menyertakan usage rows sesi builder ORIGINAL + sesi v1.1
+  + sesi v1.2 ini.** File dasar + rites/results hanya terhitung authored
+  lewat sesi-sesi itu; sesi v1.2 sendiri menulis 604 baris file baru +
+  ~250 baris edit wiring (termasuk `main.ts` 2× edit) — di atas ambang
+  ~640 baris bila digabung, dan file-file baru v1.2 sepenuhnya authored
+  di sesi ini.
+- Resubmit menggantikan submission `01a1e4c5` (Force_Last) — skor 818.754
+  akan hilang dan diganti skor baru (bisa lebih tinggi ATAU lebih rendah;
+  proyeksi analisis +15–30k, masih di bawah cutoff ~930k).
+- Kuota saat analisis: day cap 3, sisa 3 hari ini; hard limit sisa 18.
