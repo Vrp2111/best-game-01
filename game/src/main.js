@@ -37,6 +37,7 @@ import { computeResults } from './results.js';
 import { createRenderer } from './render.js';
 import { createAudio } from './audio.js';
 import { stageShot } from './shots.js';
+import { bindDifficulty, refreshBossBar, renderSelectedPanel } from './upgradeui.js';
 
 /** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
 const MAX_FRAME = 0.25;
@@ -66,6 +67,7 @@ const ui = {
   best: 0,
   bestGrade: '',
   draft: null, // the current draft offer (array of rite defs) or null
+  difficulty: 'normal', // easy | normal | hard — picked on the title screen
 };
 
 function readBest() {
@@ -139,40 +141,29 @@ function selectPlacing(type) {
 }
 
 // --- Selected tower panel --------------------------------------------------
+// The panel itself lives in upgradeui.js (v1.2); this only hands it the
+// world and the three actions. Upgrade buys a level with lumens, sell
+// refunds the whole investment, rotate turns the tower as before.
 const selectedEl = $('selected');
 function refreshSelectedPanel() {
-  if (!ui.selectedCell) {
-    selectedEl.hidden = true;
-    selectedEl.innerHTML = '';
-    return;
-  }
-  const { col, row } = ui.selectedCell;
-  const tower = world.towerAt(col, row);
-  if (!tower) {
-    ui.selectedCell = null;
-    selectedEl.hidden = true;
-    return;
-  }
-  const def = TOWERS[tower.type];
-  const refund = Math.floor(def.cost * 0.7);
-  const extra = tower.type === 'emitter' ? `Faces <b>${tower.dir}</b>. Beam 40 damage/s.`
-    : tower.type === 'mirror' ? `Reflects ${tower.mirror === '/' ? 'N↔E, S↔W' : 'N↔W, S↔E'}.`
-    : tower.type === 'prism' ? 'Splits one beam into red / blue / green.'
-    : 'Doubles any beam passing through.';
-  selectedEl.hidden = false;
-  selectedEl.innerHTML = `<div class="row1"><span>${def.name}</span><span class="cost" style="color:#ffd166">◈ ${def.cost}</span></div>`
-    + `<div>${extra}</div>`
-    + `<div style="color:#9aa3c7;font-size:12px">Tile ${col + 1}×${row + 1} · R rotates · sell refunds ◈ ${refund}</div>`
-    + `<button type="button" id="btnRotate">⟳ Rotate (R)</button><button type="button" id="btnSell">Sell +◈ ${refund}</button>`;
-  $('btnRotate').addEventListener('click', () => {
-    if (world.rotateTower(col, row)) { audio.rotate(); refreshSelectedPanel(); }
-  });
-  $('btnSell').addEventListener('click', () => {
-    if (world.removeTower(col, row)) {
-      audio.sell();
-      ui.selectedCell = null;
-      refreshSelectedPanel();
-    }
+  renderSelectedPanel(selectedEl, world, ui.selectedCell, {
+    rotate: (col, row) => {
+      if (world.rotateTower(col, row)) { audio.rotate(); return true; }
+      return false;
+    },
+    sell: (col, row) => {
+      if (world.removeTower(col, row)) {
+        audio.sell();
+        ui.selectedCell = null;
+        return true;
+      }
+      return false;
+    },
+    upgrade: (col, row) => {
+      if (world.upgradeTowerAt(col, row)) { audio.place(); return true; }
+      audio.error();
+      return false;
+    },
   });
 }
 
@@ -229,6 +220,8 @@ function updateHUD() {
   $('btnSpeed').textContent = `${ui.speed}×`;
   $('btnMute').textContent = audio.isMuted() ? '🔇 Muted' : '🔊 Sound';
   $('btnPause').textContent = ui.screen === 'paused' ? '▶ Resume' : '⏸ Pause';
+  // Boss bar (v1.2): hidden until the Dread Colossus arrives on wave 10.
+  refreshBossBar($('bossbar'), s);
 }
 
 // --- Placement preview -----------------------------------------------------
@@ -422,7 +415,8 @@ function showOverlay(id) {
 
 function startGame() {
   audio.unlock();
-  world.reset();
+  // Difficulty (v1.2): picked on the title screen; the board restarts on it.
+  world.setDifficulty(ui.difficulty);
   world.setAttract(false);
   ui.screen = 'play';
   ui.placing = null;
@@ -537,6 +531,8 @@ function runGame() {
   ui.best = readBest();
   ui.bestGrade = readBestGrade();
   $('titleBest').textContent = bestLine();
+  // Difficulty pick (v1.2): three buttons on the title screen, Normal selected.
+  bindDifficulty($('difficulty'), (key) => { ui.difficulty = key; audio.select(); });
   world.setAttract(true);
   showOverlay('titleOverlay');
   announce('PRISMWARD. Press Space or click Start to play.');
@@ -598,15 +594,18 @@ function runShot(name) {
 // --- Debug hook (used by the screenshot and playtest scripts) --------------
 window.__prismward = {
   world,
-  version: '1.1.0',
+  version: '1.2.0',
   get state() { return world.state; },
   get screen() { return ui.screen; },
   get draft() { return ui.draft; },
+  get difficulty() { return world.state.difficulty; },
   start: startGame,
   startWave,
   pickRite,
   openDraft: () => { if (ui.screen === 'play') openDraft(world.drawOffer()); },
   place: (type, col, row, dir = 'E') => world.placeTowerFree(col, row, type, dir),
+  upgrade: (col, row) => world.upgradeTowerAt(col, row),
+  setDifficulty: (key) => world.setDifficulty(key),
   setLumens: (n) => world.debugSetup({ lumens: n }),
   setWave: (n) => world.debugSetup({ wave: n }),
   win: () => { world.forceWin(); endGame(true); },

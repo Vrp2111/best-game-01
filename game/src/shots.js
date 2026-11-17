@@ -1,10 +1,11 @@
-// The screenshot scenes behind ?shot=title|mid|late|victory. Each one plays
-// the real rules forward from a fresh world, steered by a fixed tower layout,
-// so the frame is what a real game looks like and the same seed always gives
-// the same frame. The title scene is the attract mode (a demo board routing
-// light while shadows wander); mid is a wave-3 fight with a prism splitting;
-// late is a wave-9 fight with a full optical circuit; victory is the win
-// screen over a finished board.
+// The screenshot scenes behind ?shot=title|mid|late|boss|draft|victory.
+// Each one plays the real rules forward from a fresh world, steered by a
+// fixed tower layout, so the frame is what a real game looks like and the
+// same seed always gives the same frame. The title scene is the attract
+// mode (a demo board routing light while shadows wander); mid is a wave-3
+// fight with a prism splitting; late is a wave-9 fight with a full optical
+// circuit and upgraded towers; boss is the wave-10 Dread Colossus mid-fight
+// in phase II (ENRAGED); victory is the win screen over a finished board.
 import { STEP } from './config.js';
 
 const MID_LAYOUT = [
@@ -39,6 +40,14 @@ function placeLayout(world, layout) {
   for (const [type, col, row, dir] of layout) world.placeTowerFree(col, row, type, dir);
 }
 
+/** Upgrade the towers on these tiles twice each (level 3), for staged scenes. */
+function upgradeLayout(world, cells) {
+  for (const [col, row] of cells) {
+    world.upgradeTowerAt(col, row);
+    world.upgradeTowerAt(col, row);
+  }
+}
+
 function runSteps(world, seconds) {
   const steps = Math.floor(seconds / STEP);
   for (let i = 0; i < steps; i += 1) world.step(STEP);
@@ -61,8 +70,44 @@ export function stageShot(name, world) {
   if (name === 'late') {
     world.debugSetup({ lumens: 999, wave: 9 });
     placeLayout(world, LATE_LAYOUT);
+    // The cover shows the v1.2 upgrade system at work: level-3 emitters
+    // with gold pips, a level-2 prism and a level-3 lens on the circuit.
+    upgradeLayout(world, [[11, 0], [11, 4], [5, 0]]);
+    world.upgradeTowerAt(11, 1);
+    world.upgradeTowerAt(5, 2);
+    world.upgradeTowerAt(5, 2);
     world.startWave();
     runSteps(world, 22);
+    return { screen: 'play' };
+  }
+  if (name === 'boss') {
+    // Wave 10, mid-boss-fight: the Dread Colossus has dropped into phase
+    // II — ENRAGED — with its orange ring, phase pips and the banner
+    // across the board. Stepped forward until the phase flips (or 45 s
+    // of fight, whichever comes first), so the frame is deterministic.
+    world.debugSetup({ lumens: 999, wave: 10 });
+    placeLayout(world, LATE_LAYOUT);
+    upgradeLayout(world, [[11, 0], [11, 4], [5, 0], [0, 2]]);
+    world.upgradeTowerAt(11, 1);
+    world.upgradeTowerAt(5, 2);
+    world.upgradeTowerAt(5, 2);
+    world.startWave();
+    let bossPhase = 1;
+    const maxSteps = Math.floor(45 / STEP);
+    for (let i = 0; i < maxSteps; i += 1) {
+      world.step(STEP);
+      const boss = world.state.enemies.find((e) => e.boss);
+      if (boss) {
+        bossPhase = boss.boss.phase;
+        if (bossPhase >= 2) break;
+      }
+      if (world.state.over) break;
+    }
+    void bossPhase;
+    // Half a second more so the phase banner fades in fully: its alpha
+    // runs on world time, and the frame is painted after staging stops
+    // stepping — without this the banner would still be transparent.
+    runSteps(world, 0.5);
     return { screen: 'play' };
   }
   if (name === 'draft') {
@@ -86,6 +131,12 @@ export function stageShot(name, world) {
   if (name === 'victory') {
     world.debugSetup({ lumens: 999, wave: 10 });
     placeLayout(world, LATE_LAYOUT);
+    // The winning board shows its upgrades too: level-3 emitters, a
+    // level-2 prism, a level-3 lens — the build that held the dawn.
+    upgradeLayout(world, [[11, 0], [11, 4]]);
+    world.upgradeTowerAt(11, 1);
+    world.upgradeTowerAt(5, 2);
+    world.upgradeTowerAt(5, 2);
     world.applyRite('overcharge');
     world.applyRite('quadprism');
     world.applyRite('richvein');

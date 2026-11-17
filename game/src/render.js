@@ -6,6 +6,8 @@
 import {
   COLORS, CORE_CELL, DIR, FIELD, PALETTE, PATH,
 } from './config.js';
+import { drawTowerLevel } from './upgrades.js';
+import { bossWeakRing, drawBossBanner, drawBossMarkers } from './boss.js';
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
@@ -238,6 +240,8 @@ export function createRenderer(canvas) {
       ctx.ellipse(x, y, 16, 7, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
+    // Upgrade level (v1.2): gold pips under the base, a gold ring at max.
+    drawTowerLevel(ctx, tower, x, y);
   }
 
   function drawBeams(state, time) {
@@ -313,11 +317,13 @@ export function createRenderer(canvas) {
       ctx.beginPath();
       ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
       ctx.fill();
-      // Weakness ring: the colour that hurts it most.
-      ctx.strokeStyle = COLORS[def.weak].css;
+      // Weakness ring: the colour that hurts it most. A boss in phase II
+      // or III burns its phase colour instead.
+      const ringColor = enemy.boss ? bossWeakRing(enemy) : COLORS[def.weak].css;
+      ctx.strokeStyle = ringColor;
       ctx.globalAlpha = 0.85;
       ctx.lineWidth = 2.5;
-      ctx.shadowColor = COLORS[def.weak].css;
+      ctx.shadowColor = ringColor;
       ctx.shadowBlur = 8;
       ctx.beginPath();
       ctx.arc(enemy.x, enemy.y, enemy.radius + 2, 0, Math.PI * 2);
@@ -346,6 +352,8 @@ export function createRenderer(canvas) {
       ctx.fillRect(enemy.x - bw / 2, enemy.y - enemy.radius - 10, bw, 4);
       ctx.fillStyle = frac > 0.5 ? '#3dff8e' : frac > 0.25 ? '#ffd166' : '#ff4d6d';
       ctx.fillRect(enemy.x - bw / 2, enemy.y - enemy.radius - 10, bw * frac, 4);
+      // Boss (v1.2): name, phase pips and the enrage pulse above the bar.
+      drawBossMarkers(ctx, enemy, time);
     }
   }
 
@@ -440,6 +448,8 @@ export function createRenderer(canvas) {
     drawEnemies(state, time);
     drawParticles(state);
     drawFloaters(state);
+    // Boss phase banner (v1.2): across the board while a transition is fresh.
+    drawBossBanner(ctx, state);
     drawGhost(ui, state);
     drawSelection(ui, state);
     ctx.restore();

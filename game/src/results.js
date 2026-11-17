@@ -8,6 +8,7 @@
 // run this browser has seen.
 import { TOTAL_WAVES } from './config.js';
 import { RITE_BY_ID, totalRites } from './rites.js';
+import { difficultyLine } from './difficulty.js';
 
 function fmtTime(seconds) {
   const m = Math.floor(seconds / 60);
@@ -40,12 +41,14 @@ export function computeResults(state, best) {
     .filter(([, n]) => n > 0)
     .map(([id, n]) => ({ ...RITE_BY_ID[id], count: n }));
   const stats = [
+    { label: 'Difficulty', value: difficultyLine(state.difficulty) },
     { label: 'Waves cleared', value: `${wavesCleared} / ${TOTAL_WAVES}` },
     { label: 'Shadows shattered', value: String(state.kills) },
     { label: 'Damage dealt', value: String(Math.round(state.damageDealt)) },
     { label: 'Lumens earned', value: `◈ ${state.lumensEarned}` },
     { label: 'Lumens spent', value: `◈ ${state.lumensSpent}` },
     { label: 'Towers built', value: String(state.towersBuilt) },
+    { label: 'Tower upgrades', value: String(state.upgradesBought ?? 0) },
     { label: 'Towers sold', value: String(state.towersSold) },
     { label: 'Prism Rites', value: String(totalRites(state)) },
     { label: 'Time', value: fmtTime(state.time) },

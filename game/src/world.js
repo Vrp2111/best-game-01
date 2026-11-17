@@ -19,9 +19,15 @@ import {
 } from './config.js';
 import {
   RITE_BY_ID, clearBonus, damageMultiplier, graceArmed, killBonus,
-  lensMultiplier, offerRites, quadSplit, sellRate, slowFactor, toughMultiplier,
+  offerRites, quadSplit, sellRate, slowFactor, toughMultiplier,
   towerCost, widthMultiplier,
 } from './rites.js';
+import { bossSpeedMult, bossTick, checkBossPhase, initBoss } from './boss.js';
+import { enemyHpScale, enemySpeedScale, isDifficulty, startCoreHp, startLumens } from './difficulty.js';
+import {
+  emitterDamageMult, emitterWidthMult, lensDamageMult, mirrorDamageMult,
+  prismDamageMult, sellValue, upgradeTower,
+} from './upgrades.js';
 
 export const EVENT_KILL = 1;
 export const EVENT_LEAK = 2;
@@ -79,8 +85,11 @@ export function isCoreCell(col, row) {
   return col === CORE_CELL.col && row === CORE_CELL.row;
 }
 
-export function createWorld(random) {
+export function createWorld(random, difficultyKey = 'normal') {
   const state = {
+    // Difficulty (v1.2): the run's difficulty key; reset() reads the
+    // opening purse and Lantern HP from it.
+    difficulty: isDifficulty(difficultyKey) ? difficultyKey : 'normal',
     lumens: START_LUMENS,
     score: 0,
     coreHp: START_CORE_HP,
@@ -103,6 +112,8 @@ export function createWorld(random) {
     attractTimer: 0,
     over: false,
     won: false,
+    // Boss (v1.2): the phase banner text while one is live, or null.
+    bossBanner: null,
     // Prism Rites (R1): permanent boons drafted between waves, id -> times taken.
     rites: {},
     graceUsed: false,
@@ -112,6 +123,8 @@ export function createWorld(random) {
     lumensSpent: 0,
     towersBuilt: 0,
     towersSold: 0,
+    // Upgrades (v1.2): how many tower levels this run bought.
+    upgradesBought: 0,
   };
   // grid[row][col] = null or { type, dir, mirror }
   let grid = [];
@@ -125,10 +138,10 @@ export function createWorld(random) {
 
   function reset() {
     resetGrid();
-    state.lumens = START_LUMENS;
+    state.lumens = startLumens(state.difficulty);
     state.score = 0;
-    state.coreHp = START_CORE_HP;
-    state.maxHp = START_CORE_HP;
+    state.coreHp = startCoreHp(state.difficulty);
+    state.maxHp = startCoreHp(state.difficulty);
     state.wave = 1;
     state.waveActive = false;
     state.kills = 0;
@@ -149,11 +162,25 @@ export function createWorld(random) {
     state.won = false;
     state.rites = {};
     state.graceUsed = false;
+    state.bossBanner = null;
     state.damageDealt = 0;
     state.lumensEarned = 0;
     state.lumensSpent = 0;
     state.towersBuilt = 0;
     state.towersSold = 0;
+    state.upgradesBought = 0;
+  }
+
+  /**
+   * Pick the run's difficulty (v1.2) and restart the board on it. Only
+   * meaningful before a run starts (the title screen); the difficulty is
+   * fixed once the first wave runs. Returns false for an unknown key.
+   */
+  function setDifficulty(key) {
+    if (!isDifficulty(key)) return false;
+    state.difficulty = key;
+    reset();
+    return true;
   }
 
   function inBounds(col, row) {
@@ -176,17 +203,29 @@ export function createWorld(random) {
     state.lumens -= cost;
     state.lumensSpent += cost;
     state.towersBuilt += 1;
-    grid[row][col] = { type, dir, mirror: '/' };
+    grid[row][col] = { type, dir, mirror: '/', level: 1 };
     return true;
   }
 
   function removeTower(col, row) {
     const tower = towerAt(col, row);
     if (!tower) return false;
-    state.lumens += Math.floor(TOWERS[tower.type].cost * sellRate(state));
+    // The refund covers the whole investment — build cost plus every
+    // upgrade level bought — at the run's sell rate.
+    state.lumens += sellValue(tower, sellRate(state));
     state.towersSold += 1;
     grid[row][col] = null;
     return true;
+  }
+
+  /**
+   * Buy the next level for the tower on this tile (v1.2). False when
+   * there is no tower, it is maxed out, or the run cannot afford it.
+   */
+  function upgradeTowerAt(col, row) {
+    const tower = towerAt(col, row);
+    if (!tower) return false;
+    return upgradeTower(state, tower);
   }
 
   /**
@@ -285,6 +324,8 @@ export function createWorld(random) {
       segments += 1;
       if (tower.type === 'mirror') {
         d = MIRROR_REFLECT[tower.mirror][d];
+        // A polished mirror focuses the light: upgraded mirrors hit harder.
+        damage *= mirrorDamageMult(tower);
         col = nc;
         row = nr;
         x = centre.x;
@@ -293,7 +334,7 @@ export function createWorld(random) {
         continue;
       }
       if (tower.type === 'lens') {
-        damage *= lensMultiplier(state);
+        damage *= lensDamageMult(state, tower);
         w *= 0.6;
         col = nc;
         row = nr;
@@ -304,6 +345,8 @@ export function createWorld(random) {
       }
       if (tower.type === 'prism') {
         // Split: red goes straight, blue turns left, green turns right.
+        // An upgraded prism splits harder light.
+        damage *= prismDamageMult(tower);
         queue.push({ origin: centre, dir: d, color: PRISM_SPLIT.straight, dps: damage, width: w });
         queue.push({ origin: centre, dir: TURN[d].left, color: PRISM_SPLIT.left, dps: damage, width: w });
         queue.push({ origin: centre, dir: TURN[d].right, color: PRISM_SPLIT.right, dps: damage, width: w });
@@ -327,8 +370,8 @@ export function createWorld(random) {
         if (tower && tower.type === 'emitter') {
           queue.push({
             origin: cellCenter(c, r), dir: tower.dir, color: 'white',
-            dps: BEAM_BASE_DPS * damageMultiplier(state),
-            width: 10 * widthMultiplier(state),
+            dps: BEAM_BASE_DPS * damageMultiplier(state) * emitterDamageMult(tower),
+            width: 10 * widthMultiplier(state) * emitterWidthMult(tower),
           });
         }
       }
@@ -346,7 +389,7 @@ export function createWorld(random) {
    *  and the board restored. */
   function previewBeam(col, row, type, dir = 'E') {
     if (!canPlace(col, row)) return [];
-    grid[row][col] = { type, dir, mirror: '/' };
+    grid[row][col] = { type, dir, mirror: '/', level: 1 };
     const beams = computeBeams();
     grid[row][col] = null;
     state.beams = computeBeams();
@@ -360,18 +403,18 @@ export function createWorld(random) {
   // Before this, every spawn sat exactly on the path centre at dist 0, so a
   // wave arrived as one perfect conga line — in the cover shot it read like
   // a rendering bug. Now the horde walks in as a loose, organic group.
-  function spawnEnemy(type, stagger = 0) {
+  function spawnEnemy(type, stagger = 0, dist = null) {
     const def = ENEMIES[type];
-    const hpScale = 1 + HP_SCALE_PER_WAVE * (state.wave - 1);
-    const speedScale = 1 + SPEED_SCALE_PER_WAVE * (state.wave - 1);
+    const hpScale = enemyHpScale(state.difficulty, state.wave);
+    const speedScale = enemySpeedScale(state.difficulty, state.wave);
     const pos = pointOnPath(0);
-    state.enemies.push({
+    const enemy = {
       type, def,
       hp: Math.round(def.hp * hpScale),
       maxHp: Math.round(def.hp * hpScale),
       speed: def.speed * speedScale,
       radius: def.radius,
-      dist: stagger,
+      dist: dist ?? stagger,
       x: pos.x, y: pos.y,
       // A fixed lateral offset per shadow: the horde never walks single-file.
       ox: (random() - 0.5) * 44,
@@ -379,7 +422,11 @@ export function createWorld(random) {
       slowUntil: 0,
       greenHit: false,
       wobble: random() * Math.PI * 2,
-    });
+    };
+    // The wave-10 colossus is the boss: three phases, a banner, a bar.
+    if (type === 'colossus') initBoss(enemy);
+    state.enemies.push(enemy);
+    return enemy;
   }
 
   function buildSpawnQueue(wave) {
@@ -443,11 +490,16 @@ export function createWorld(random) {
     // Move enemies along the path (plus their fixed lateral offset).
     for (const enemy of state.enemies) {
       const slowed = state.time < enemy.slowUntil;
-      const speed = enemy.speed * (slowed ? slowFactor(state) : 1);
+      const speed = enemy.speed * (slowed ? slowFactor(state) : 1) * bossSpeedMult(enemy);
       enemy.dist += speed * dt;
       const pos = pointOnPath(enemy.dist);
       enemy.x = pos.x + enemy.ox;
       enemy.y = pos.y + Math.sin(state.time * 6 + enemy.wobble) * 2 + enemy.oy;
+    }
+    // Phase III boss behaviour runs on a copy: shedding minions pushes
+    // into state.enemies, which must not mutate the loop above mid-step.
+    for (const enemy of [...state.enemies]) {
+      if (enemy.boss) bossTick(enemy, state, dt, (type, stagger, d) => spawnEnemy(type, stagger, d));
     }
 
     // Beam damage: every segment against every enemy.
@@ -464,6 +516,8 @@ export function createWorld(random) {
         const dealt = seg.dps * colour.damage * mult * toughMultiplier(state, enemy.type) * dt;
         enemy.hp -= dealt;
         state.damageDealt += dealt;
+        // A hurt boss can change phase: banner, speed, minions.
+        if (enemy.boss) checkBossPhase(enemy, state, { burst, floater });
         if (seg.color === 'blue' && state.time >= enemy.slowUntil) enemy.slowUntil = state.time + SLOW_DURATION;
         if (seg.color === 'green') enemy.greenHit = true;
       }
@@ -578,7 +632,7 @@ export function createWorld(random) {
 
   function placeTowerFree(col, row, type, dir = 'E') {
     if (!canPlace(col, row)) return false;
-    grid[row][col] = { type, dir, mirror: '/' };
+    grid[row][col] = { type, dir, mirror: '/', level: 1 };
     return true;
   }
 
@@ -604,7 +658,7 @@ export function createWorld(random) {
   return {
     state,
     get grid() { return grid; },
-    reset, step, startWave, wavePreview,
+    reset, step, startWave, wavePreview, setDifficulty, upgradeTowerAt,
     placeTower, removeTower, rotateTower, canPlace, towerAt,
     computeBeams, previewBeam, setAttract, debugSetup, forceWin, forceLose,
     placeTowerFree, applyRite, drawOffer,
